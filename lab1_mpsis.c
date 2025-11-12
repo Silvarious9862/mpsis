@@ -1,21 +1,17 @@
 // Бобрик В.Ю. 250541 L1
 // Цифровой ввод-вывод
 #include <msp430.h>
-// --- debounce settings ---
-#define BTN_SAMPLES 10
-#define BTN_THRESHOLD 8
+// --- настройки антидребезга ---
+#define BTN_SAMPLES 10 // всего опросов
+#define BTN_THRESHOLD 8 // 8 из 10 должны показать 0 на кнопке
 
-// --- btn ---
+// --- регистры кнопки ---
 #define BTN_S1_PORT_IN P1IN
 #define BTN_S1_PORT_DIR P1DIR
 #define BTN_S1_PORT_OUT P1OUT
 #define BTN_S1_PORT_REN P1REN
 #define BTN_S1_PORT_SEL P1SEL
-#define BTN_S1_PORT_SEL2 P1SEL2
-#define BTN_S1_BIT BIT7 // S1 = P1.7
-
-#define BTN_S2_PORT P2IN
-#define BTN_S2_BIT BIT2 // S2 = P2.2
+#define BTN_S1_BIT BIT7 // кнопка S1 = P1.7
 
 // --- led ---
 #define LED1_PORT_OUT P1OUT
@@ -45,29 +41,20 @@ void init_hw(void)
 	WDTCTL = WDTPW + WDTHOLD; // Stop WDT
 
 	// led1
-	LED1_PORT_DIR |= LED1_BIT;	// out
-	LED1_PORT_OUT |= LED1_BIT; // enable
+	LED1_PORT_DIR |= LED1_BIT; // режим выход
+	LED1_PORT_OUT |= LED1_BIT; // включить режим выхода
 	LED1_PORT_SEL &= ~LED1_BIT; // gpio
-#ifdef P1SEL2
-	LED1_PORT_SEL2 &= ~LED1_BIT;
-#endif
 
 	// led3
-	LED3_PORT_DIR |= LED3_BIT;	// out
-	LED3_PORT_OUT |= LED3_BIT; // enable
+	LED3_PORT_DIR |= LED3_BIT; // режим выход
+	LED3_PORT_OUT |= LED3_BIT; // включить режим выхода
 	LED3_PORT_SEL &= ~LED3_BIT; // gpio
-#ifdef P8SEL2
-	LED3_PORT_SEL2 &= ~LED3_BIT;
-#endif
 
-	// btn1
-	BTN_S1_PORT_DIR &= ~BTN_S1_BIT; // in
-	BTN_S1_PORT_REN |= BTN_S1_BIT;	// ren
-	BTN_S1_PORT_OUT |= BTN_S1_BIT;	// ren up
-	BTN_S1_PORT_SEL &= ~BTN_S1_BIT; // GPIO
-#ifdef P1SEL2
-	BTN_S1_PORT_SEL2 &= ~BTN_S1_BIT;
-#endif
+	// кнопка 1
+	BTN_S1_PORT_DIR &= ~BTN_S1_BIT; // режим вход
+	BTN_S1_PORT_REN |= BTN_S1_BIT;	// резистор
+	BTN_S1_PORT_OUT |= BTN_S1_BIT;	// подтяжка резистора вверх
+	BTN_S1_PORT_SEL &= ~BTN_S1_BIT; // gpio
 }
 
 unsigned char debounce_S1(void)
@@ -96,7 +83,7 @@ int main(void)
 	while (1)
 	{
 
-		// debounce
+		// антидребезг
 		unsigned char btn_now = debounce_S1();
 		if (btn_prev == 1 && btn_now == 0)
 		{
@@ -104,7 +91,7 @@ int main(void)
 		}
 		btn_prev = btn_now;
 
-		// blinks
+		// мигания
 		tick++;
 		if (tick >= BLINK_TICKS)
 		{
@@ -112,21 +99,21 @@ int main(void)
 			blink_phase ^= 1; // xor led
 		}
 
-		// mods
+		// режимы
 		switch (mode)
 		{
 		case 0: // led1 + led3
 			LED1_PORT_OUT |= LED1_BIT;
 			LED3_PORT_OUT |= LED3_BIT;
 			break;
-		case 1: // led3 blink
+		case 1: // led3 мигает
 			LED1_PORT_OUT &= ~LED1_BIT;
 			if (blink_phase)
 				LED3_PORT_OUT |= LED3_BIT;
 			else
 				LED3_PORT_OUT &= ~LED3_BIT;
 			break;
-		case 2: // led1 blink
+		case 2: // led1 мигает
 			LED3_PORT_OUT &= ~LED3_BIT;
 			if (blink_phase)
 				LED1_PORT_OUT |= LED1_BIT;
@@ -136,10 +123,10 @@ int main(void)
 		case 3: // led 1 + led 3
 			LED1_PORT_OUT |= LED1_BIT;
 			LED3_PORT_OUT |= LED3_BIT;
-			mode = 0; // goto mode 0
+			mode = 0; // идем в режим 0
 			break;
 		}
-		// delay 
+		// задержка 
 		volatile unsigned int d;
 		for (d = 0; d < 1000; d++)
 		{

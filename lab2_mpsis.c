@@ -1,21 +1,20 @@
 // Бобрик В.Ю. 250541 L2
-// Подсистема прерываний 
+// Подсистема прерываний
 #include <msp430.h>
-// --- debounce settings ---
-#define BTN_SAMPLES 10
-#define BTN_THRESHOLD 8
+// --- настройки антидребезга ---
+#define BTN_SAMPLES 10 // всего опросов
+#define BTN_THRESHOLD 8 // 8 из 10 должны показать 0 на кнопке
 
-// --- btn ---
+// --- регистры кнопки ---
 #define BTN_S1_PORT_IN P1IN
 #define BTN_S1_PORT_DIR P1DIR
 #define BTN_S1_PORT_OUT P1OUT
 #define BTN_S1_PORT_REN P1REN
+#define BTN_S1_PORT_SEL P1SEL
 #define BTN_S1_PORT_IE P1IE
 #define BTN_S1_PORT_IES P1IES
 #define BTN_S1_PORT_IFG P1IFG
-#define BTN_S1_PORT_SEL P1SEL
-#define BTN_S1_PORT_SEL2 P1SEL2
-#define BTN_S1_BIT BIT7 // S1 = P1.7
+#define BTN_S1_BIT BIT7 // кнопка S1 = P1.7
 
 // --- led ---
 #define LED1_PORT_OUT P1OUT
@@ -24,12 +23,6 @@
 #define LED1_PORT_SEL2 P1SEL2
 #define LED1_BIT BIT0 // LED1 = P1.0
 
-#define LED2_PORT_OUT P8OUT
-#define LED2_PORT_DIR P8DIR
-#define LED2_PORT_SEL P8SEL
-#define LED2_PORT_SEL2 P8SEL2
-#define LED2_BIT BIT1 // LED2 = P8.1
-
 #define LED3_PORT_OUT P8OUT
 #define LED3_PORT_DIR P8DIR
 #define LED3_PORT_SEL P8SEL
@@ -37,46 +30,41 @@
 #define LED3_BIT BIT2 // LED3 = P8.2
 
 // ----
-#define BLINK_TICKS 20			 // led blinkings
-volatile unsigned char mode = 0; // working mode
+#define BLINK_COUNT 15
+volatile unsigned char mode = 0; // режим работы
 volatile unsigned char blink_phase = 0;
 volatile unsigned int blink_cnt = 0;
-volatile unsigned char btn_prev = 0;
 
-void init_hw(void)
+void init_hw(void) // стартовая настройка
 {
-	WDTCTL = WDTPW + WDTHOLD; // Stop WDT
+	WDTCTL = WDTPW + WDTHOLD; // остановить WDT
 
 	// led1
-	LED1_PORT_DIR |= LED1_BIT; // out
-	LED1_PORT_OUT |= LED1_BIT; // enable
+	LED1_PORT_DIR |= LED1_BIT; // режим выход
+	LED1_PORT_OUT |= LED1_BIT; // включить диод
 	LED1_PORT_SEL &= ~LED1_BIT; // gpio
-#ifdef P1SEL2
-	LED1_PORT_SEL2 &= ~LED1_BIT;
-#endif
 
 	// led3
-	LED3_PORT_DIR |= LED3_BIT; // out
-	LED3_PORT_OUT |= LED3_BIT; // enable
+	LED3_PORT_DIR |= LED3_BIT; // режим выход
+	LED3_PORT_OUT |= LED3_BIT; // включить диод
 	LED3_PORT_SEL &= ~LED3_BIT; // gpio
-#ifdef P8SEL2
-	LED3_PORT_SEL2 &= ~LED3_BIT;
-#endif
 
-	// btn1
-	BTN_S1_PORT_DIR &= ~BTN_S1_BIT; // in
-	BTN_S1_PORT_REN |= BTN_S1_BIT;	// ren
-	BTN_S1_PORT_OUT |= BTN_S1_BIT;	// ren up
-	BTN_S1_PORT_SEL &= ~BTN_S1_BIT; // GPIO
-#ifdef P1SEL2
-	BTN_S1_PORT_SEL2 &= ~BTN_S1_BIT;
-#endif
+	// кнопка 1
+	BTN_S1_PORT_DIR &= ~BTN_S1_BIT; // режим вход
+	BTN_S1_PORT_REN |= BTN_S1_BIT;	// резистор
+	BTN_S1_PORT_OUT |= BTN_S1_BIT;	// подтяжка резистора вверх
+	BTN_S1_PORT_SEL &= ~BTN_S1_BIT; // gpio
 
-	// timerA0
-	TA0CCR0 = 1250 - 1; // from 0 to 1249
-	//		SMCLK | divider 8 | count up | clear
-	TA0CTL = TASSEL_2 | ID_3 | MC_1 | TACLR; 
-	TA0CCTL0 = CCIE; // int by comparison enable
+	// прерывание по кнопке
+    BTN_S1_PORT_IE |= BTN_S1_BIT;   // разрешить прерывание
+    BTN_S1_PORT_IES |= BTN_S1_BIT;  // сначала ловим спад (нажатие)
+    BTN_S1_PORT_IFG &= ~BTN_S1_BIT; // сброс флага
+
+	// таймер A0
+	TA0CCR0 = 1250 - 1; // от 0 до 1249 (ровно 10 мс)
+	//		SMCLK | делитель 8 | счет вверх | очистить
+	TA0CTL = TASSEL_2 | ID_3 | MC_1 | TACLR;
+	TA0CCTL0 = CCIE; // разрешить прерывание по равенству
 }
 
 unsigned char debounce_S1(void)
@@ -98,57 +86,75 @@ unsigned char debounce_S1(void)
 
 int main(void)
 {
-	init_hw();
-	__enable_interrupt();
-	__low_power_mode_3();
+	init_hw(); 				// стартовая настройка
+	__enable_interrupt();	// разрешить прерывания
+	__low_power_mode_3();	// режим низкого потребления
 	return 0;
 }
 
-// register int handler
+// регистрация обработчика прерывания по таймеру А0
 #pragma vector = TIMER0_A0_VECTOR
 __interrupt void Timer_A0(void)
 {
-	// btn 
-	unsigned char btn_now = debounce_S1();
-	if (btn_prev == 1 && btn_now == 0)
-	{
-		mode = (mode + 1) & 3;
-	}
-	btn_prev = btn_now;
-
-	// blink
+	// мигание
 	blink_cnt++;
-	if (blink_cnt >= 25)
+	if (blink_cnt >= BLINK_COUNT)
 	{
 		blink_cnt = 0;
 		blink_phase ^= 1;
 	}
 
-	// mode
+	// режим работы
 	switch (mode)
 	{
 	case 0: // led1 + led3
 		LED1_PORT_OUT |= LED1_BIT;
 		LED3_PORT_OUT |= LED3_BIT;
 		break;
-	case 1: // led3 blink
+	case 1: // led3 мигает
 		LED1_PORT_OUT &= ~LED1_BIT;
 		if (blink_phase)
 			LED3_PORT_OUT |= LED3_BIT;
 		else
 			LED3_PORT_OUT &= ~LED3_BIT;
 		break;
-	case 2: // led1 blink
+	case 2: // led1 мигает
 		LED3_PORT_OUT &= ~LED3_BIT;
 		if (blink_phase)
 			LED1_PORT_OUT |= LED1_BIT;
 		else
 			LED1_PORT_OUT &= ~LED1_BIT;
 		break;
-	case 3: // led 1 + led 3 
+	case 3: // led 1 + led 3
 		LED1_PORT_OUT |= LED1_BIT;
 		LED3_PORT_OUT |= LED3_BIT;
-		mode = 0; // goto mode 0
+		mode = 0; // переход в режим 0
 		break;
 	}
+}
+
+#pragma vector=PORT1_VECTOR
+__interrupt void Port_1(void)
+{
+    if (BTN_S1_PORT_IFG & BTN_S1_BIT) // если есть прерывание от кнопки S1
+    {
+        if (BTN_S1_PORT_IES & BTN_S1_BIT) // если это задний фронт
+        {
+            if (debounce_S1())
+            {
+                // переключаем на передний фронт (отпускание)
+                BTN_S1_PORT_IES &= ~BTN_S1_BIT;
+            }
+        }
+        else // если это передний фронт
+        {
+            if (!debounce_S1())
+            {
+                mode = (mode + 1) & 3; // смена режима
+                // переключаем на задний фронт (нажатие)
+                BTN_S1_PORT_IES |= BTN_S1_BIT;
+            }
+        }
+        BTN_S1_PORT_IFG &= ~BTN_S1_BIT; // сброс флага
+    }
 }
