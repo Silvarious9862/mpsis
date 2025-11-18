@@ -33,12 +33,12 @@
 #define LED3_BIT BIT2 // LED3 = P8.2
 
 // ----
-#define BLINK_TICKS 20	// led blinkings
-unsigned char mode = 0; // working mode
+#define BLINK_TICKS 20	// длительность мигания
+unsigned char mode = 0; // рабочий режим
 
 void init_hw(void)
 {
-	WDTCTL = WDTPW + WDTHOLD; // Stop WDT
+	WDTCTL = WDTPW + WDTHOLD; // остановить WDT
 
 	// led1
 	LED1_PORT_DIR |= LED1_BIT; // режим выход
